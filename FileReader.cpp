@@ -11,7 +11,6 @@ using namespace std;
 template <typename T>
 T& vecRef<T>::addBack() { //increases the size of the vector by 1, and returns a reference to the last element
 	this->resize(this->size() + 1);
-	vector<int> abc;
 	return this->back();
 }
 
@@ -19,19 +18,13 @@ vecRef<string> FileReader::currentUserAccounts;
 vecRef<string> FileReader::availableItems;
 mutex FileReader::m;
 condition_variable FileReader::cv;
-unique_lock<mutex> FileReader::lk;
+//unique_lock<mutex> FileReader::lk(m, defer_lock);
 bool FileReader::initialized = false;
 
-void FileReader::run(string path) {
-	lk = unique_lock<mutex>(m);
-	if (initialized && !lk.try_lock()) {
-		cv.wait(lk);
-	}
-	else {
-		initialized = true;
-	}
-
-	ifstream userAccountsReader(path + "current_user_accounts.txt");
+void FileReader::run(vector<string> paths) {
+	unique_lock<mutex> lk = unique_lock<mutex>(m);
+	//lk.lock();
+	ifstream userAccountsReader(paths[0]);
 	//istream_iterator<string> startCUA(userAccountsReader), endCUA;
 	//currentUserAccounts = vector<string>(startCUA, endCUA);
 	while (userAccountsReader.peek() != EOF) {
@@ -39,33 +32,34 @@ void FileReader::run(string path) {
 	}
 	userAccountsReader.close();
 
-	ifstream availableItemsReader(path + "available items.txt");
+	ifstream availableItemsReader(paths[1]);
 	//istream_iterator<string> startAI(availableItemsReader), endAI;
 	//availableItems = vector<string>(startAI, endAI);
 	while (!availableItemsReader.eof()) {
 		getline(availableItemsReader, availableItems.addBack());
 	}
 	availableItemsReader.close();
+	initialized = true;
 	lk.unlock();
 	cv.notify_all();
 }
 
 vector<string> FileReader::getCurrentUserAccounts() {
-	if (!lk.try_lock()) {
-		cv.wait(lk);
+	unique_lock<mutex> lk = unique_lock<mutex>(m);
+	if (!initialized) {
+		cv.wait(lk, [] {return initialized;});
 	}
 	vector<string> ret = currentUserAccounts;
 	lk.unlock();
-	cv.notify_all();
 	return ret;
 }
 
 vector<string> FileReader::getAvailableItems() {
-	if (!lk.try_lock()) {
-		cv.wait(lk);
+	unique_lock<mutex> lk = unique_lock<mutex>(m);
+	if (!initialized) {
+		cv.wait(lk, [] {return initialized;});
 	}
 	vector<string> ret = availableItems;
 	lk.unlock();
-	cv.notify_all();
 	return ret;
 }
