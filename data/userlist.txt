@@ -1,0 +1,12 @@
+username01     _FS_010000.00
+admin01        _AA_090090.00
+username02     _BS_010000.00
+username03     _SS_010000.00
+brokeuser01    _FS_000005.00
+brokeuser02    _BS_000005.00
+brokeuser03    _SS_000005.00
+seller01       _FS_002000.00
+user01         _FS_090000.00
+user02         _FS_000090.00
+buyer01        _BS_090090.00
+admin02        _AA_090090.00
