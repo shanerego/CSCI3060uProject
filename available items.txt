@@ -1,2 +1,0 @@
-item1                     admin1          user1           098 000134
-END                                                                 
