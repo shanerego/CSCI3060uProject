@@ -1,13 +1,25 @@
 #include <iostream>
 #include <string>
+#include "getInput.h"
 #include "user.h"
 #include "FileReader.h"
 #include "transactionFileWriter.h"
 #include "session.h"
+#if(_DEBUG)
+#include "main.h"
+#include <csetjmp>
+//eofbit should never be set when a user is using the program, but 
+//since the tests send a file through cin, they set the eofbit.
+//So this makes it so that if they set it, the program exits
+#define checkTestEnd if (cin.peek() == EOF) { longjmp(testExit, 1); }
+#endif
 
 using namespace std;
 
+//logs out of session
 void session::logout() {
+
+
 	string transaction;
 	transaction += "00 ";
 	transaction += userObject->getUsername();
@@ -41,6 +53,9 @@ void session::advertise() {
 	bool validPeriod = false;
 	while (!validPeriod) {
 		cout << "Enter Number Of Days Until Auction Ends: ";
+#if(_DEBUG)
+		checkTestEnd
+#endif
 		cin >> period;
 		if (cin.peek() != '\n') {
 			cout << "Error: Invalid Input" << endl;
@@ -68,126 +83,284 @@ void session::advertise() {
 }
 
 void session::bid() {
+	
+	// bid item
+	// check user types
+	if ((userObject->getUserType() & (user::ADMIN | user::FULL_STANDARD)) != userObject->getUserType()) {
+		cout << "Error: You Do Not Have Privileges To Perform This Transaction" << endl;
+		return;
+	}
 
+
+	string itemName = getInputWithSpaces("Enter Item: ", "Error: Invalid Name", 25);
+	string itemPrice = "";
+	vector<string> currentAvailableItems = FileReader::getAvailableItems();
+	for (int i = 0; i < currentAvailableItems.size() - 1; i++) {
+		string& line = currentAvailableItems[i];
+		if (line.substr(0, 21).compare(itemName) == 0) {
+			//got item name
+			//then get item price
+			itemPrice = line.substr(57,63);
+		}
+	}
+
+
+	string sellerName = getInputWithSpaces("Enter Seller Username: ", "Error: Invalid Name", 15);
+
+
+
+
+	double preprice = 200.00; // temp value, need to get item price.
+	string minBid = getMonetaryInputAsString("Enter Bid: ", [preprice](string input) {
+		double val = stod(input);
+		if (val < 0) {
+			cout << "Error: Minimum Bid Cannot Be Negative" << endl;
+			return false;
+		}
+		else if (val < (preprice + (preprice * 0.05))) {
+			// val must be higher by 5% the prev bid
+		}
+		return true;
+
+
+		});
+
+
+
+	string transaction;
+	transaction += "04 ";
+	transaction += pad(itemName, 25, ' ', 'l');
+	transaction += " ";
+	transaction += sellerName;
+	transaction += " ";
+	transaction += userObject->getUsername();
+	transaction += " ";
+	transaction += pad(minBid, 6, '0', 'r');
+	transactionFileWriter::add(transaction);
 }
 
 void session::create() {
-
-}
-
-void session::addCredit() {
-
-}
-
-void session::refund() {
-
-}
-
-void session::deleteUser() {
-
-}
-
-string session::getInputWithSpaces(string prompt, string errorMsg, int maxLength) {
-	string input;
-	char* temp = new char[maxLength + 2];
-	bool validInput = false;
-	while (!validInput) {
-		cout << prompt;
-		//using ">>" blocks until user enters new line character, but only retrieves input
-		//up to first whitespace character
-		cin >> input;
-		//get remaining input contained in cin
-		cin.readsome(temp, maxLength + 1 - input.length());
-		if ((cin.gcount() + input.length() > maxLength + 1) || (cin.gcount() + input.length() < 2)) {
-			cout << errorMsg << endl;
+	if ((userObject->getUserType() & (user::ADMIN)) != userObject->getUserType()) {
+		cout << "Error: You Do Not Have Privileges To Perform This Transaction" << endl;
+		return;
+	}
+	string newUsername;
+	while (true) {
+		newUsername = getInputWithSpaces("Enter Username For New User: ", "Error: Invalid Name", 15);
+		vector<string> currentUserAccounts = FileReader::getCurrentUserAccounts();
+		for (int i = 0; i < currentUserAccounts.size() - 1; i++) {
+			string& line = currentUserAccounts[i];
+			if (line.substr(0, 15).compare(newUsername) == 0) {
+				cout << "Error: User With That Name Already Exists" << endl;
+				continue;
+			}
 		}
-		else {
-			validInput = true;
-		}
+		break;
 	}
-	char* combinedInput = new char[maxLength + 1];
-	const char* inputTemp = input.c_str();
-	for (int i = 0; i < input.length(); i++) {
-		combinedInput[i] = inputTemp[i];
-	}
-	for (int i = 0; i < cin.gcount() - 2; i++) {
-		combinedInput[input.length() + i] = temp[i];
-	}
-	for (int i = input.length() + cin.gcount() - 1; i < maxLength + 1; i++) {
-		combinedInput[i] = ' ';  //add spaces for padding
-	}
-	combinedInput[maxLength] = '\0';
-	string retInput = string(combinedInput);
-	delete[] temp;
-	delete[] combinedInput;
-	return retInput;
-}
 
-string session::getMonetaryInputAsString(string prompt, bool (*constraintF)(string)) {
-	string input;
-	bool validInput = false;
-	while (!validInput) {
-		cout << prompt;
-		cin >> input;
-		//check if any remaining input in cin
+	cout << "Enter Type For New User: ";
+	string newUserType;
+	while (true) {
+#if(_DEBUG)
+		checkTestEnd
+#endif
+		cin >> newUserType;
 		if (cin.peek() != '\n') {
 			cout << "Error: Invalid Input" << endl;
 		}
-		for (int i = 0; i < input.length(); i++) {
-			if ((input[i] == '.') && (input.length() - i > 3)) {
-				cout << "Error: Monetary Values Can Have Max 2 Decimal Precision" << endl;
+		else if (newUserType.compare("admin") == 0) {
+			newUserType = "AA";
+			break;
+		}
+		else if (newUserType.compare("full-standard") == 0) {
+			newUserType = "FS";
+			break;
+		}
+		else if (newUserType.compare("buy-standard") == 0) {
+			newUserType = "BS";
+			break;
+		}
+		else if (newUserType.compare("sell-standard") == 0) {
+			newUserType = "SS";
+			break;
+		}
+		else {
+			cout << "Error: New User Type Must Be One Of (admin, full-standard, buy-standard, sell-standard)" << endl;
+		}
+	}
+
+	string transaction;
+	transaction += "01 ";
+	transaction += newUsername;
+	transaction += " ";
+	transaction += newUserType;
+	transaction += " ";
+	transaction += pad("", 9, '0', 'r');
+	transactionFileWriter::add(transaction);
+}
+
+void session::addCredit() {
+	//only allows admin or full standard users to add credit
+	if ((userObject->getUserType() & (user::ADMIN | user::FULL_STANDARD)) != userObject->getUserType()) {
+		cout << "Error: You Do Not Have Privileges To Perform This Transaction" << endl;
+		return;
+	}
+
+
+	//path for if user is admin type is different than if user is full standard
+	//admin path first
+	if ((userObject->getUserType() & (user::ADMIN)) == userObject->getUserType()) {
+		string userName = getInputWithSpaces("Enter User Name To Add Credit To: ", "Error: Invalid User Name", 15);
+		string creditAmount = getMonetaryInputAsString("Enter Amount To Add: ", [](string input) {
+			double val = stod(input);
+			if (val < 0) {
+				cout << "Error: Cannot Add Negative Credit" << endl;
+				return false;
 			}
-		}
-		if (constraintF(input)) {
-			validInput = true;
-		}
+			else if (val > 1000.00) {
+				cout << "Error: Cannot Add More Than 1000.00 Credit" << endl;
+				return false;
+			}
+			return true;
+		});
+
+		//creates the transaction line and sends it to writer
+		string transaction;
+		transaction += "06 ";
+		transaction += userName;
+		transaction += " ";
+		transaction += "AA";
+		transaction += " ";
+		transaction += creditAmount;
+		transactionFileWriter::add(transaction);
+		transactionFileWriter::writeOut();
+
+		return;
 	}
-	return input;
+
+
+	//Full standard user path
+	if ((userObject->getUserType() & (user::FULL_STANDARD)) == userObject->getUserType()) {
+		string creditAmount = getMonetaryInputAsString("Enter Amount To Add To Accound: ", [](string input) {
+			double val = stod(input);
+			if (val < 0) {
+				cout << "Error: Cannot add negative credit" << endl;
+				return false;
+			}
+			else if (val > 1000.00) {
+				cout << "Error: Maximum Amount To Add Is 1000.00" << endl;
+				return false;
+			}
+			return true;
+		});
+
+
+		//creates the transaction line and sends it to the writer
+		string transaction;
+		transaction += "06 ";
+		transaction += userObject->getUsername();
+		transaction += " ";
+		transaction += "FS";
+		transaction += " ";
+		transaction += creditAmount;
+		transactionFileWriter::add(transaction);
+		transactionFileWriter::writeOut();
+		return;
+	}
+
+	return;
 }
 
-double session::getMonetaryInput(string prompt, bool (*constraintF)(string)) {
-	return stod(getMonetaryInputAsString(prompt, constraintF));
+void session::refund() {
+	// privileged transaction done by admins only
+	if ((userObject->getUserType() & (user::ADMIN)) != userObject->getUserType()) {
+		cout << "Error: You Do Not Have Privileges To Perform This Transaction" << endl;
+		return;
+	}
+	user* buyerObject = NULL;
+	user* sellerObject = NULL;
+	//buyer exists
+	string buyerUsername = getInputWithSpaces("Enter Buyer Username: ", "Error: Invalid Username", 15);
+	vector<string> currentUserAccounts = FileReader::getCurrentUserAccounts();
+	for (int i = 0; i < currentUserAccounts.size() - 1; i++) {
+		string& line = currentUserAccounts[i];
+		if (line.substr(0, 15).compare(buyerUsername) == 0) {
+			buyerObject = new user(line.substr(0, 15), line.substr(16, 2), line.substr(19, 9));
+		}
+	}
+	//seller exists
+	string sellerUsername = getInputWithSpaces("Enter Seller Username: ", "Error: Invalid Username", 15);
+	currentUserAccounts = FileReader::getCurrentUserAccounts();
+	for (int i = 0; i < currentUserAccounts.size() - 1; i++) {
+		string& line = currentUserAccounts[i];
+		if (line.substr(0, 15).compare(sellerUsername) == 0) {
+			sellerObject = new user(line.substr(0, 15), line.substr(16, 2), line.substr(19, 9));
+		}
+	}
+	// checks correct bid amount
+	// refund doesn't have a limit
+	auto abc = [sellerUsername](string input) {
+		return false;
+	};
+	string refund = getMonetaryInputAsString("Enter Minimum Bid: ", [sellerObject](string input) {
+		double val = stod(input);
+		if (val < 0) {
+			cout << "Error: Minimum Refund Cannot Be Negative" << endl;
+			return false;
+		}
+		else if (val >= (sellerObject->getCredit())) {
+			cout << "Error: Seller's Credit is too low for this refund" << endl;
+		}
+		return true;
+	});
+	//send to transaction
+	string transaction;
+	transaction += "05 ";
+	transaction += buyerObject->getUsername();
+	transaction += " ";
+	transaction += sellerObject->getUsername();
+	transaction += " ";
+	transaction += pad(refund, 9, '0', 'r');
+	transactionFileWriter::add(transaction);
 }
 
-string session::pad(string data, int size, char padding, char side) {
-	char* paddedData = new char[size + 1];
-	const char* dataCStr = data.c_str();
-	if (side == 'r') {
-		for (int i = 0; i < size - data.length(); i++) {
-			paddedData[i] = padding;
-		}
-		for (int i = 0; i < data.length(); i++) {
-			paddedData[i + size - data.length()] = dataCStr[i];
-		}
+//deletes user
+void session::deleteUser() {
+	//only allows admins to delete users
+	if ((userObject->getUserType() & (user::ADMIN)) != userObject->getUserType()) {
+		cout << "Error: You Do Not Have Privileges To Perform This Transaction" << endl;
+		return;
 	}
-	else {
-		for (int i = 0; i < data.length(); i++) {
-			paddedData[i] = dataCStr[i];
-		}
-		for (int i = size - data.length(); i < size; i++) {
-			paddedData[i] = padding;
-		}
-	}
-	paddedData[size] = '\0';
-	string retData(paddedData);
-	delete[] paddedData;
-	delete[] dataCStr;
-	return retData;
+
+	//gets user to be deleted
+	string deletedUser = getInputWithSpaces("Enter Username of User to Delete: ", "Error: Invalid Username", 15);
+
+
+	//send to transaction
+	string transaction;
+	transaction += "02 ";
+	transaction += deletedUser;
+	transaction += " ";
+	transaction += "AA";
+	transaction += " ";
+	transaction += "000000000";
+	transactionFileWriter::add(transaction);
+
+
 }
 
 /*
 reads the userAccounts file and finds the user details with the
 given account name
-
 if name is found in userAccounts file, instantiates userObject
 and returns a new session
-
 if name is not found returns null
 */
 session* session::login() {
 	string username = getInputWithSpaces("Enter Username: ", "Error: Invalid Username", 15);
-
+	username = pad(username, 15, ' ', 'l');
 	vector<string> currentUserAccounts = FileReader::getCurrentUserAccounts();
+	
 	for (int i = 0; i < currentUserAccounts.size() - 1; i++) {
 		string& line = currentUserAccounts[i];
 		if (line.substr(0, 15).compare(username) == 0) {
@@ -200,7 +373,10 @@ session* session::login() {
 void session::sessionLoop() {
 	string command;
 	while (true) {
-		cin >> command;
+#if(_DEBUG)
+		checkTestEnd
+#endif
+		command = getInputWithSpaces("", "Error: Invalid Input", 20);
 
 		if (command.compare("login") == 0) {
 			cout << "Error: Already Logged In" << endl;
@@ -210,22 +386,22 @@ void session::sessionLoop() {
 			break;
 		}
 		else if (command.compare("advertise") == 0) {
-
+			advertise();
 		}
 		else if (command.compare("bid") == 0) {
-
+			bid();
 		}
 		else if (command.compare("create") == 0) {
-
+			create();
 		}
 		else if (command.compare("addcredit") == 0) {
-
+			addCredit();
 		}
 		else if (command.compare("refund") == 0) {
-
+			refund();
 		}
 		else if (command.compare("delete") == 0) {
-
+			deleteUser();
 		}
 		else {
 			cout << "Error: Invalid Command" << endl;
